@@ -3,6 +3,7 @@
     <aside class="app-side">
       <h1 class="app-title">API数据接入与消息流处理平台</h1>
       <nav class="nav-list">
+        <RouterLink class="nav-item" to="/receipt-guard">采集回执窗口校验</RouterLink>
         <RouterLink v-for="item in navItems" :key="item.path" :to="item.path" class="nav-item">
           {{ item.label }}
         </RouterLink>

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.receipt_guard import receipt_guard
 from app.store import store
 
 
@@ -77,6 +78,31 @@ class ThroughputAlarmService(BaseModuleService):
             "status": "数据断流", "pending": True, "abnormal": True,
         })
         return {"ok": True, "isolation_id": fid, "audit_id": aid}
+
+    # ---- 业务扩展：基于采集回执窗口校验的异常消费与补采编排 ----
+
+    def consume_receipt_anomalies(self, entry_id: int) -> dict[str, Any]:
+        """吞吐量告警先消费采集回执异常明细，留下消费台账。
+
+        未完成消费之前不允许生成补采请求，避免把“缺测”误判成真实断流后盲目派单。
+        """
+        entry = store.find(self.MODULE, entry_id)
+        if entry is None:
+            return {"ok": False, "message": "告警规则不存在"}
+        if entry.get("status") != "已生效":
+            return {"ok": False, "message": "告警规则未生效，不能消费异常明细"}
+        return receipt_guard.consume_anomalies(alarm_id=str(entry_id))
+
+    def raise_backfill_request(self, entry_id: int, window_keys: list[str]) -> dict[str, Any]:
+        """消费异常明细之后才允许生成补采请求；证据不足的窗口由回执守卫阻断。"""
+        entry = store.find(self.MODULE, entry_id)
+        if entry is None:
+            return {"ok": False, "blocked": True, "message": "告警规则不存在"}
+        return receipt_guard.create_backfill_request(
+            alarm_id=str(entry_id),
+            window_keys=window_keys,
+            source=str(entry.get("监控数据源", "order-stream")),
+        )
 
     def suggest_resume_policy(self, entry_id: int) -> str | None:
         """告警触发时推荐续采策略。"""

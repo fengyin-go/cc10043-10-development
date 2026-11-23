@@ -79,5 +79,32 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 采集回执窗口校验（receipt_guard）
+
+针对“没收到可用采集回执就和真实断流一样触发停滞、异常明细缺少可信观测”的问题，
+新增按 5 分钟窗口校验采集回执的能力，代码位于
+`backend/app/services/receipt_guard.py`，路由前缀 `/api/receipt-guard`，
+前端工作台为 `/receipt-guard`（采集回执窗口校验）。
+
+观测与派单规则：
+
+- 四种窗口结果分别留痕：**缺测**（未收到可用回执，`observed_count` 保持 `null`，绝不补 0）、
+  **时间无效**（时间无法解析，单独留痕、数量不计入任何窗口）、**实采零条**（回执显式 0）、
+  **实采正数**。
+- 迟到观测按回执中的观测时间**归位到对应窗口**；同一 `receipt_id` 重复送达时**更正而不重复累计**。
+- 吞吐量告警必须先 `POST /anomalies/consume` 消费异常明细（留消费台账），
+  之后 `POST /backfills` 才会受理；缺测/时间无效等证据不足的窗口可在异常清单回查原因，
+  但会被阻断、不能派出补采。
+- 每个补采请求按可派窗口分段，每段都关联**实际补采时间段**（窗口起止）和依据回执；
+  分段登记交付成功/写入失败后可在 `GET /backfills/{id}` 查看各范围交付与履约情况、
+  欠交付清单，并通过 `POST /backfills/{id}/redispatch` 只重派失败段（已交付段不重复派出）。
+
+值班场景在服务启动时自动载入（12:00、12:10 确证零条，12:05 缺测），也可随时
+`POST /api/receipt-guard/scenario/reset` 重置。端到端验证脚本：
+
+```bash
+cd backend && .venv/bin/python ../scripts/e2e_receipt_guard.py
+```
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA

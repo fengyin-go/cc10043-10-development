@@ -5,14 +5,25 @@
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import ROUTERS
+from app.services.receipt_guard import receipt_guard
 from app.store import store
 
-app = FastAPI(title="API数据接入与消息流处理平台", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # 启动即载入值班场景：12:00/12:10 确证零条，12:05 缺测。
+    receipt_guard.seed_duty_scenario()
+    yield
+
+
+app = FastAPI(title="API数据接入与消息流处理平台", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
